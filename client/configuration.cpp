@@ -305,6 +305,9 @@ configuration::configuration(xr::system & system, xr::session & session, const s
 
 		if (system.passthrough_supported() == xr::passthrough_type::none)
 			passthrough_enabled = false;
+
+		if (not system.keyboard_tracking_supported())
+			keyboard_passthrough_enabled = false;
 	}
 	catch (std::exception & e)
 	{
@@ -327,6 +330,7 @@ const std::vector<config_field> & configuration::config_fields()
 	        scalar("theme_font_scale", &configuration::theme_font_scale),
 	        scalar("theme_background_alpha", &configuration::theme_background_alpha),
 	        scalar("passthrough_enabled", &configuration::passthrough_enabled),
+	        scalar("keyboard_passthrough_enabled", &configuration::keyboard_passthrough_enabled),
 	        scalar("mic_unprocessed_audio", &configuration::mic_unprocessed_audio),
 	        scalar("forward_keyboard", &configuration::forward_keyboard),
 	        scalar("forward_mouse", &configuration::forward_mouse),

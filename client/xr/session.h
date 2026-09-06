@@ -28,8 +28,10 @@
 #include <openxr/openxr.h>
 
 #include "hand_tracker.h"
+#include "keyboard_passthrough.h"
 #include "passthrough.h"
 #include "space.h"
+#include <optional>
 
 namespace xr
 {
@@ -40,6 +42,11 @@ class session : public utils::handle<XrSession, xrDestroySession>
 {
 	instance * inst = nullptr;
 	xr::passthrough passthrough;
+	xr::keyboard_passthrough keyboard_passthrough_;
+	// the runtime only allows a single XrPassthroughFB per session; lazily
+	// created and shared by every passthrough_*_fb consumer, see
+	// ensure_shared_passthrough_object()
+	std::optional<xr::passthrough_object_fb> shared_passthrough_object;
 	thread_safe<vk::raii::Queue> * queue = nullptr;
 
 	PFN_xrGetDisplayRefreshRateFB xrGetDisplayRefreshRateFB = nullptr;
@@ -96,6 +103,17 @@ public:
 	xr::passthrough & get_passthrough()
 	{
 		return passthrough;
+	}
+
+	// lazily creates the session's single XrPassthroughFB object if needed
+	XrPassthroughFB ensure_shared_passthrough_object();
+	// idempotent; call once a layer has been created on the object returned
+	// by ensure_shared_passthrough_object(), see passthrough_object_fb
+	void start_shared_passthrough_object();
+
+	xr::keyboard_passthrough & get_keyboard_passthrough()
+	{
+		return keyboard_passthrough_;
 	}
 
 	void set_performance_level(XrPerfSettingsDomainEXT, XrPerfSettingsLevelEXT);

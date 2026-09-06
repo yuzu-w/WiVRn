@@ -21,6 +21,7 @@
 
 #include "body_tracker.h"
 #include "details/enumerate.h"
+#include "dynamic_object_tracker.h"
 #include "face_tracker.h"
 #include "openxr/openxr.h"
 #include "utils/contains.h"
@@ -50,6 +51,29 @@ xr::system::system(xr::instance & inst, XrFormFactor formfactor)
 
 	if (hand_tracking_supported_ and inst.has_extension(XR_FB_HAND_TRACKING_MESH_EXTENSION_NAME))
 		hand_mesh_fb_supported_ = true;
+
+	// both extensions are required: dynamic object tracking on its own is
+	// useless for us without also being able to track the keyboard class
+	if (inst.has_extension(XR_META_DYNAMIC_OBJECT_TRACKER_EXTENSION_NAME) and
+	    inst.has_extension(XR_META_DYNAMIC_OBJECT_KEYBOARD_EXTENSION_NAME))
+	{
+		XrSystemDynamicObjectKeyboardPropertiesMETA keyboard_prop{
+		        .type = XR_TYPE_SYSTEM_DYNAMIC_OBJECT_KEYBOARD_PROPERTIES_META,
+		};
+
+		XrSystemDynamicObjectTrackerPropertiesMETA tracker_prop{
+		        .type = XR_TYPE_SYSTEM_DYNAMIC_OBJECT_TRACKER_PROPERTIES_META,
+		        .next = &keyboard_prop,
+		};
+
+		XrSystemProperties prop{
+		        .type = XR_TYPE_SYSTEM_PROPERTIES,
+		        .next = &tracker_prop,
+		};
+		CHECK_XR(xrGetSystemProperties(inst, id, &prop));
+
+		keyboard_tracking_supported_ = tracker_prop.supportsDynamicObjectTracker and keyboard_prop.supportsDynamicObjectKeyboard;
+	}
 
 	body_tracker = xr::body_tracker_supported(inst, *this);
 	face_tracker = xr::face_tracker_supported(inst, *this);
@@ -299,6 +323,11 @@ bool xr::system::hand_tracking_supported() const
 bool xr::system::hand_mesh_fb_supported() const
 {
 	return hand_mesh_fb_supported_;
+}
+
+bool xr::system::keyboard_tracking_supported() const
+{
+	return keyboard_tracking_supported_;
 }
 
 vk::raii::PhysicalDevice xr::system::physical_device(vk::raii::Instance & vulkan) const

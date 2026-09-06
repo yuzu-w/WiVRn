@@ -1089,6 +1089,30 @@ void scenes::stream::render(const XrFrameState & frame_state)
 		else
 			session.disable_passthrough();
 
+		if (application::get_config().keyboard_passthrough_enabled)
+		{
+			// this is a young feature exercising several brand new OpenXR
+			// extensions: never let a failure here (e.g. a rejected XR call)
+			// take down the render thread via an uncaught exception
+			try
+			{
+				session.get_keyboard_passthrough().enable();
+				session.get_keyboard_passthrough().update(instance, session, application::space(xr::spaces::world), frame_state.predictedDisplayTime);
+			}
+			catch (std::exception & e)
+			{
+				spdlog::error("keyboard_passthrough: disabling after an error: \"{}\"", e.what());
+				auto & config = application::get_config();
+				config.keyboard_passthrough_enabled = false;
+				config.save();
+				session.get_keyboard_passthrough().disable();
+			}
+		}
+		else
+		{
+			session.get_keyboard_passthrough().disable();
+		}
+
 		render_start(use_alpha, frame_state.predictedDisplayTime);
 
 		// Add the layer with the streamed content
@@ -1348,6 +1372,10 @@ std::optional<std::string> scenes::stream::pop_stream_error()
 
 void scenes::stream::on_xr_event(const xr::event & event)
 {
+	// dynamic_object_tracker and spatial_anchor ignore anything that isn't
+	// theirs, so it's simplest to just forward every event unconditionally
+	session.get_keyboard_passthrough().handle_event(reinterpret_cast<const XrEventDataBaseHeader &>(event.header));
+
 	switch (event.header.type)
 	{
 		case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:

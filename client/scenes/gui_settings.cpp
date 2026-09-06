@@ -545,6 +545,19 @@ void settings_devices(const settings_context & ctx)
 	        .default_bool = default_config.forward_keyboard,
 	});
 
+	if (ctx.system.keyboard_tracking_supported())
+	{
+		list.push_back({
+		        .id = "##keyboard_passthrough",
+		        .label = _C("setting name", "Keyboard passthrough"),
+		        .description = _("See your physical keyboard and hands through passthrough."),
+		        .ui = ui_kind::toggle,
+		        .get_bool = [&config] { return config.keyboard_passthrough_enabled; },
+		        .set_bool = [&config](bool v) { config.keyboard_passthrough_enabled = v; config.save(); },
+		        .default_bool = default_config.keyboard_passthrough_enabled,
+		});
+	}
+
 	list.push_back({
 	        .id = "##mouse",
 	        .label = _C("setting name", "Mouse"),

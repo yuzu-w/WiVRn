@@ -60,6 +60,12 @@
     <!-- https://developer.oculus.com/documentation/native/android/mobile-passthrough/ -->
     <uses-feature android:name="com.oculus.feature.PASSTHROUGH" android:required="false" />
 
+    <!-- Required for keyboard passthrough (XR_META_dynamic_object_tracker/_keyboard), see client/xr/keyboard_passthrough.h -->
+    <!-- https://developers.meta.com/horizon/documentation/native/android/mobile-dynamic-object-tracker/ -->
+    <uses-feature android:name="com.oculus.experimental.enabled" android:required="false" />
+    <uses-permission android:name="com.oculus.permission.USE_ANCHOR_API" />
+    <uses-permission android:name="com.oculus.permission.USE_SCENE" />
+
     <!-- See https://hub.vive.com/storage/docs/en-us/ConfigureAppCapabilities.html -->
     <uses-feature android:name="wave.feature.handtracking" android:required="false" />
     <uses-feature android:name="wave.feature.eyetracking" android:required="false" />

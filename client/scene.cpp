@@ -398,6 +398,14 @@ void scene::set_layer_settings(XrCompositionLayerSettingsFlagsFB flags)
 
 void scene::render_end()
 {
+	// Keyboard passthrough is an overlay on top of the VR content (a manually
+	// placed hole), not a background layer, so it is added last regardless of
+	// whether render_start() was asked to draw a background passthrough layer.
+	if (XrCompositionLayerBaseHeader * keyboard_passthrough_layer = session.get_keyboard_passthrough().layer())
+		layers.push_back(layer{
+		        .composition_layer = keyboard_passthrough_layer,
+		});
+
 	// Fixup all pointers
 	for (auto & i: layers)
 	{

@@ -1312,7 +1312,18 @@ void application::initialize()
 	        XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME,
 	        XR_FB_FACE_TRACKING2_EXTENSION_NAME,
 	        XR_FB_PASSTHROUGH_EXTENSION_NAME,
+	        XR_FB_SCENE_EXTENSION_NAME,
+	        XR_FB_SPATIAL_ENTITY_EXTENSION_NAME,
+	        XR_FB_SPATIAL_ENTITY_QUERY_EXTENSION_NAME,
+	        XR_FB_SPATIAL_ENTITY_STORAGE_EXTENSION_NAME,
 	        XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME,
+	        XR_FB_TRIANGLE_MESH_EXTENSION_NAME,
+
+	        // keyboard passthrough (client/xr/keyboard_passthrough.h): still in
+	        // Meta's experimental preview namespace, also needs
+	        // com.oculus.experimental.enabled in the manifest
+	        XR_META_DYNAMIC_OBJECT_TRACKER_EXTENSION_NAME,
+	        XR_META_DYNAMIC_OBJECT_KEYBOARD_EXTENSION_NAME,
 
 	        XR_HTC_PASSTHROUGH_EXTENSION_NAME,
 	        XR_HTC_PATH_ENUMERATION_EXTENSION_NAME,

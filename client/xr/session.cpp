@@ -60,6 +60,8 @@ xr::session::session(xr::instance & inst, xr::system & sys, vk::raii::Instance &
 
 	if (inst.has_extension(XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME))
 		xrPerfSettingsSetPerformanceLevelEXT = inst.get_proc<PFN_xrPerfSettingsSetPerformanceLevelEXT>("xrPerfSettingsSetPerformanceLevelEXT");
+
+	keyboard_passthrough_ = xr::keyboard_passthrough(inst, *this);
 }
 
 std::vector<XrReferenceSpaceType> xr::session::get_reference_spaces() const
@@ -359,7 +361,7 @@ void xr::session::enable_passthrough(xr::system & system)
 
 	if (inst->has_extension(XR_FB_PASSTHROUGH_EXTENSION_NAME))
 	{
-		passthrough.emplace<xr::passthrough_fb>(*inst, *this);
+		passthrough.emplace<xr::passthrough_fb>(*inst, *this, ensure_shared_passthrough_object());
 	}
 	else if (inst->has_extension(XR_HTC_PASSTHROUGH_EXTENSION_NAME))
 	{
@@ -376,6 +378,19 @@ void xr::session::disable_passthrough()
 	if (std::holds_alternative<std::monostate>(passthrough))
 		return;
 	passthrough.emplace<std::monostate>();
+}
+
+XrPassthroughFB xr::session::ensure_shared_passthrough_object()
+{
+	if (not shared_passthrough_object)
+		shared_passthrough_object.emplace(*inst, *this);
+	return *shared_passthrough_object;
+}
+
+void xr::session::start_shared_passthrough_object()
+{
+	if (shared_passthrough_object)
+		shared_passthrough_object->start();
 }
 
 void xr::session::set_performance_level(XrPerfSettingsDomainEXT domain, XrPerfSettingsLevelEXT level)

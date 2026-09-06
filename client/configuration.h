@@ -74,6 +74,10 @@ public:
 	bool passthrough_enabled = false;
 	bool mic_unprocessed_audio = false;
 
+	// See the physical keyboard through passthrough while streaming, see
+	// client/xr/keyboard_passthrough.h. Unrelated to forward_keyboard below.
+	bool keyboard_passthrough_enabled = false;
+
 	// Input forwarding, per device. Off by default; only effective if the server permits it.
 	bool forward_keyboard = false;
 	bool forward_mouse = false;

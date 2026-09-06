@@ -63,6 +63,7 @@ class system
 	XrSystemId id = XR_NULL_SYSTEM_ID;
 	bool hand_tracking_supported_ = false;
 	bool hand_mesh_fb_supported_ = false;
+	bool keyboard_tracking_supported_ = false;
 	passthrough_type passthrough;
 	body_tracker_type body_tracker;
 	face_tracker_type face_tracker;
@@ -95,6 +96,7 @@ public:
 
 	bool hand_tracking_supported() const;
 	bool hand_mesh_fb_supported() const;
+	bool keyboard_tracking_supported() const;
 	passthrough_type passthrough_supported() const;
 	face_tracker_type face_tracker_supported() const;
 	body_tracker_type body_tracker_supported() const;
