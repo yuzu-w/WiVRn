@@ -897,134 +897,194 @@ void scenes::stream::render(const XrFrameState & frame_state)
 	command_buffer.resetQueryPool(*query_pool, 0, size_gpu_timestamps);
 	command_buffer.writeTimestamp(vk::PipelineStageFlagBits::eTopOfPipe, *query_pool, 0);
 
-	// Search for frame with desired display time on all decoders
-	// If no such frame exists, use the latest frame for each decoder
-	current_blit_handles = common_frame(frame_state.predictedDisplayTime);
 	std::array<XrPosef, view_count> pose;
 	std::array<XrFovf, view_count> fov;
 	std::array<wivrn::to_headset::foveation_parameter, view_count> foveation;
 	bool use_alpha = false;
 
 	std::array<stream_defoveator::input, view_count> images;
-	for (size_t i = 0; i < view_count + use_alpha; ++i)
+
+	// Search for frame with desired display time on all decoders
+	// If no such frame exists, use the latest frame for each decoder
+	auto select_frames = [&]() {
+		current_blit_handles = common_frame(frame_state.predictedDisplayTime);
+		for (size_t i = 0; i < view_count + use_alpha; ++i)
+		{
+			auto & blit_handle = current_blit_handles[i];
+			if (not blit_handle)
+			{
+				if (i == view_count)
+					use_alpha = false;
+				continue;
+			}
+
+			blit_handle->feedback.blitted = instance.now();
+			if (blit_handle->feedback.blitted - blit_handle->feedback.received_from_decoder > 1'000'000'000)
+				set_state(state::stalled);
+			++blit_handle->feedback.times_displayed;
+			blit_handle->feedback.displayed = frame_state.predictedDisplayTime;
+
+			use_alpha = blit_handle->view_info.alpha;
+
+			if (blit_handle->current_layout == vk::ImageLayout::eUndefined)
+			{
+				vk::ImageMemoryBarrier barrier{
+				        .srcAccessMask = vk::AccessFlagBits::eNone,
+				        .dstAccessMask = vk::AccessFlagBits::eMemoryRead,
+				        .oldLayout = vk::ImageLayout::eUndefined,
+				        .newLayout = vk::ImageLayout::eGeneral,
+				        .image = blit_handle->image,
+				        .subresourceRange = {
+				                .aspectMask = vk::ImageAspectFlagBits::eColor,
+				                .levelCount = 1,
+				                .layerCount = 1,
+				        },
+				};
+
+				command_buffer.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eAllCommands, {}, {}, {}, barrier);
+				blit_handle->current_layout = vk::ImageLayout::eGeneral;
+			}
+
+			if (i < view_count)
+			{
+				foveation[i] = blit_handle->view_info.foveation[i];
+				pose[i] = blit_handle->view_info.pose[i];
+				fov[i] = blit_handle->view_info.fov[i];
+				// colour image
+				images[i] = {
+				        .rgb = blit_handle->image_view,
+				        .sampler_rgb = decoders[i].decoder->sampler(),
+				        .rect_rgb = {
+				                .extent = blit_handle->extent,
+				        },
+				        .layout_rgb = blit_handle->current_layout,
+				};
+			}
+			else
+			{
+				// alpha image, must set for each view
+				for (int j = 0; j < view_count; ++j)
+				{
+					images[j].a = blit_handle->image_view;
+					images[j].sampler_a = decoders[i].decoder->sampler();
+					images[j].rect_a = vk::Rect2D{
+					        // in full size pixels
+					        .offset = {
+					                .x = j * video_stream_description->width,
+					        },
+					        .extent = {
+					                .width = blit_handle->extent.width * 2,
+					                .height = blit_handle->extent.height * 2,
+					        },
+					};
+					images[j].layout_a = blit_handle->current_layout;
+				}
+			}
+		}
+		last_foveation = foveation;
+	};
+
+	// Allow the headset to time warp if we are redisplaying a frame
+	auto should_render = [&]() {
+		return (not application::get_hmd_traits().discard_frame) or
+		       std::ranges::any_of(current_blit_handles, [](const auto & h) { return h and h->feedback.times_displayed < 2; }) or
+		       is_gui_interactable();
+	};
+
+	auto compute_extents = [](const std::array<wivrn::to_headset::foveation_parameter, view_count> & foveation, XrExtent2Di extents[view_count]) {
+		XrExtent2Di max{};
+		for (size_t i = 0; i < view_count; ++i)
+		{
+			extents[i] = stream_defoveator::defoveated_size(foveation[i]);
+			max.width = std::max(max.width, extents[i].width);
+			max.height = std::max(max.height, extents[i].height);
+		}
+		return max;
+	};
+
+	// Make sure the swapchain is large enough for the given extents, clamp them otherwise
+	auto ensure_swapchain = [&](XrExtent2Di extents[view_count], XrExtent2Di max) {
+		if (not swapchain)
+			setup_reprojection_swapchain(max.width, max.height);
+		else if (swapchain.width() < max.width or swapchain.height() < max.height)
+		{
+			// If the defoveated image is larger than the swapchain, try to reallocate one
+			try
+			{
+				spdlog::info("Recreating swapchain, from {}x{} to {}x{}",
+				             swapchain.width(),
+				             swapchain.height(),
+				             max.width,
+				             max.height);
+				setup_reprojection_swapchain(max.width, max.height);
+			}
+			catch (std::exception & e)
+			{
+				spdlog::warn("failed to increase swapchain size");
+				for (size_t i = 0; i < view_count; ++i)
+				{
+					extents[i].width = std::min(extents[i].width, swapchain.width());
+					extents[i].height = std::min(extents[i].height, swapchain.height());
+				}
+			}
+		}
+	};
+
+	// Late frame selection: acquire the swapchain image first, using the previous
+	// foveation parameters to size it, and only then pick the decoded frame so that
+	// the newest possible one is displayed.
+	// Needs an existing swapchain, the first frame goes through the regular path.
+	const bool late_selection = application::get_hmd_traits().late_frame_selection and swapchain and last_foveation;
+
+	if (not late_selection)
+		select_frames();
+
+	bool render_frame = late_selection or should_render();
+	XrExtent2Di extents[view_count];
+	int image_index = -1;
+
+	if (render_frame)
 	{
-		auto & blit_handle = current_blit_handles[i];
-		if (not blit_handle)
+		if (late_selection)
 		{
-			if (i == view_count)
-				use_alpha = false;
-			continue;
-		}
+			ensure_swapchain(extents, compute_extents(*last_foveation, extents));
+			image_index = swapchain.acquire();
+			swapchain.wait();
 
-		blit_handle->feedback.blitted = instance.now();
-		if (blit_handle->feedback.blitted - blit_handle->feedback.received_from_decoder > 1'000'000'000)
-			set_state(state::stalled);
-		++blit_handle->feedback.times_displayed;
-		blit_handle->feedback.displayed = frame_state.predictedDisplayTime;
+			select_frames();
 
-		use_alpha = blit_handle->view_info.alpha;
-
-		if (blit_handle->current_layout == vk::ImageLayout::eUndefined)
-		{
-			vk::ImageMemoryBarrier barrier{
-			        .srcAccessMask = vk::AccessFlagBits::eNone,
-			        .dstAccessMask = vk::AccessFlagBits::eMemoryRead,
-			        .oldLayout = vk::ImageLayout::eUndefined,
-			        .newLayout = vk::ImageLayout::eGeneral,
-			        .image = blit_handle->image,
-			        .subresourceRange = {
-			                .aspectMask = vk::ImageAspectFlagBits::eColor,
-			                .levelCount = 1,
-			                .layerCount = 1,
-			        },
-			};
-
-			command_buffer.pipelineBarrier(vk::PipelineStageFlagBits::eAllCommands, vk::PipelineStageFlagBits::eAllCommands, {}, {}, {}, barrier);
-			blit_handle->current_layout = vk::ImageLayout::eGeneral;
-		}
-
-		if (i < view_count)
-		{
-			foveation[i] = blit_handle->view_info.foveation[i];
-			pose[i] = blit_handle->view_info.pose[i];
-			fov[i] = blit_handle->view_info.fov[i];
-			// colour image
-			images[i] = {
-			        .rgb = blit_handle->image_view,
-			        .sampler_rgb = decoders[i].decoder->sampler(),
-			        .rect_rgb = {
-			                .extent = blit_handle->extent,
-			        },
-			        .layout_rgb = blit_handle->current_layout,
-			};
+			if (not should_render())
+			{
+				// Give back the image without rendering to it, it is not referenced by any layer
+				swapchain.release();
+				render_frame = false;
+			}
+			else
+			{
+				XrExtent2Di max = compute_extents(foveation, extents);
+				if (swapchain.width() < max.width or swapchain.height() < max.height)
+				{
+					// Foveation parameters changed, rare: release the image and start again
+					swapchain.release();
+					ensure_swapchain(extents, max);
+					image_index = swapchain.acquire();
+					swapchain.wait();
+				}
+			}
 		}
 		else
 		{
-			// alpha image, must set for each view
-			for (int j = 0; j < view_count; ++j)
-			{
-				images[j].a = blit_handle->image_view;
-				images[j].sampler_a = decoders[i].decoder->sampler();
-				images[j].rect_a = vk::Rect2D{
-				        // in full size pixels
-				        .offset = {
-				                .x = j * video_stream_description->width,
-				        },
-				        .extent = {
-				                .width = blit_handle->extent.width * 2,
-				                .height = blit_handle->extent.height * 2,
-				        },
-				};
-				images[j].layout_a = blit_handle->current_layout;
-			}
+			ensure_swapchain(extents, compute_extents(foveation, extents));
+			image_index = swapchain.acquire();
+			swapchain.wait();
 		}
 	}
 
-	// Allow the headset to time warp if we are redisplaying a frame
-	if ((not application::get_hmd_traits().discard_frame) or
-	    std::ranges::any_of(current_blit_handles, [](const auto & h) { return h and h->feedback.times_displayed < 2; }) or
-	    is_gui_interactable())
+	if (render_frame)
 	{
-		XrExtent2Di extents[view_count];
-		{
-			int32_t max_width = 0;
-			int32_t max_height = 0;
-			for (size_t i = 0; i < view_count; ++i)
-			{
-				extents[i] = stream_defoveator::defoveated_size(foveation[i]);
-				max_width = std::max(max_width, extents[i].width);
-				max_height = std::max(max_height, extents[i].height);
-			}
-			if (not swapchain)
-				setup_reprojection_swapchain(max_width, max_height);
-			else if (swapchain.width() < max_width or swapchain.height() < max_height)
-			{
-				// If the defoveated image is larger than the swapchain, try to reallocate one
-				try
-				{
-					spdlog::info("Recreating swapchain, from {}x{} to {}x{}",
-					             swapchain.width(),
-					             swapchain.height(),
-					             max_width,
-					             max_height);
-					setup_reprojection_swapchain(max_width, max_height);
-				}
-				catch (std::exception & e)
-				{
-					spdlog::warn("failed to increase swapchain size");
-					for (size_t i = 0; i < view_count; ++i)
-					{
-						extents[i].width = std::min(extents[i].width, swapchain.width());
-						extents[i].height = std::min(extents[i].height, swapchain.height());
-					}
-				}
-			}
-		}
 		assert(swapchain);
+		assert(image_index >= 0);
 		// defoveate the image, apply scale/bias
-		int image_index = swapchain.acquire();
-		swapchain.wait();
-
 		switch (gui_status)
 		{
 			case stream_tab::hidden:

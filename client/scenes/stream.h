@@ -198,6 +198,9 @@ private:
 
 	// Keep a reference to the resources needed to blit the images until vkWaitForFences
 	std::array<std::shared_ptr<wivrn::shard_accumulator::blit_handle>, decoder_count> current_blit_handles;
+	// Foveation parameters of the last displayed frame, used to size the swapchain
+	// before the frame is selected when late_frame_selection is enabled
+	std::optional<std::array<wivrn::to_headset::foveation_parameter, view_count>> last_foveation;
 
 	XrTime running_application_req = 0;
 	thread_safe<to_headset::running_applications> running_applications;
