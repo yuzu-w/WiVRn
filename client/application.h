@@ -161,6 +161,9 @@ private:
 	boost::locale::generator gen;
 	boost::locale::gnu_gettext::messages_info messages_info;
 	hmd_traits runtime_hmd_traits;
+#ifdef __ANDROID__
+	void set_render_thread_priority();
+#endif
 
 private:
 	void loop();

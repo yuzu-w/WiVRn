@@ -196,6 +196,7 @@ void hmd_traits::init()
 			late_frame_selection = true;
 			late_latch_safety_us = 1500;
 			late_latch_compositor_margin_us = 9000;
+			boost_thread_priority = true;
 		}
 		else if (device == "panther") // Quest 3S
 		{

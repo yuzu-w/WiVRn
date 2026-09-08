@@ -58,6 +58,7 @@
 #include "utils/named_thread.h"
 #include <android/native_activity.h>
 #include <sys/system_properties.h>
+#include <unistd.h>
 
 #include "android/jnipp.h"
 #else
@@ -1303,6 +1304,9 @@ void application::initialize()
 	        XR_EXT_USER_PRESENCE_EXTENSION_NAME,
 
 	        XR_ANDROID_FACE_TRACKING_EXTENSION_NAME,
+#ifdef XR_USE_PLATFORM_ANDROID
+	        XR_KHR_ANDROID_THREAD_SETTINGS_EXTENSION_NAME,
+#endif
 
 	        XR_BD_BODY_TRACKING_EXTENSION_NAME,
 
@@ -1755,10 +1759,31 @@ void application::loop()
 }
 
 #ifdef __ANDROID__
+void application::set_render_thread_priority()
+{
+	// Let the runtime schedule this thread as the renderer main thread (core
+	// affinity and priority chosen by the runtime), or fall back to a nice value
+	if (xr_instance.has_extension(XR_KHR_ANDROID_THREAD_SETTINGS_EXTENSION_NAME))
+	{
+		auto xrSetAndroidApplicationThreadKHR = xr_instance.get_proc<PFN_xrSetAndroidApplicationThreadKHR>("xrSetAndroidApplicationThreadKHR");
+		XrResult res = xrSetAndroidApplicationThreadKHR(xr_session, XR_ANDROID_THREAD_TYPE_RENDERER_MAIN_KHR, gettid());
+		if (XR_SUCCEEDED(res))
+		{
+			spdlog::info("application_thread registered as XR_ANDROID_THREAD_TYPE_RENDERER_MAIN_KHR");
+			return;
+		}
+		spdlog::warn("xrSetAndroidApplicationThreadKHR failed: {}", xr::to_string(res));
+	}
+	utils::set_thread_nice("application_thread", -19);
+}
+
 void application::run()
 {
 	auto application_thread = utils::named_thread("application_thread", [&]() {
 		setup_jni();
+
+		if (get_hmd_traits().boost_thread_priority)
+			set_render_thread_priority();
 
 		while (!is_exit_requested())
 		{

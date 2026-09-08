@@ -178,26 +178,28 @@ decoder::decoder(
 
 		check(AMediaCodec_start(media_codec.get()), "AMediaCodec_start");
 	}
-	worker = utils::named_thread(
-	        "decoder-" + std::to_string(stream_index),
-	        [this]() {
-		        while (true)
-		        {
-			        try
-			        {
-				        if (jobs.pop()())
-					        return;
-			        }
-			        catch (const utils::sync_queue_closed & e)
-			        {
-				        return;
-			        }
-			        catch (const std::exception & e)
-			        {
-				        spdlog::error("error in decoder thread: {}", e.what());
-			        }
-		        }
-	        });
+	auto worker_fn = [this]() {
+		while (true)
+		{
+			try
+			{
+				if (jobs.pop()())
+					return;
+			}
+			catch (const utils::sync_queue_closed & e)
+			{
+				return;
+			}
+			catch (const std::exception & e)
+			{
+				spdlog::error("error in decoder thread: {}", e.what());
+			}
+		}
+	};
+	if (application::get_hmd_traits().boost_thread_priority)
+		worker = utils::named_thread("decoder-" + std::to_string(stream_index), -19, worker_fn);
+	else
+		worker = utils::named_thread("decoder-" + std::to_string(stream_index), worker_fn);
 }
 
 decoder::~decoder()

@@ -387,7 +387,10 @@ std::shared_ptr<scenes::stream> scenes::stream::create(std::unique_ptr<wivrn_ses
 			});
 	}
 
-	self->network_thread = utils::named_thread("network_thread", &stream::process_packets, self.get());
+	if (application::get_hmd_traits().boost_thread_priority)
+		self->network_thread = utils::named_thread("network_thread", -19, &stream::process_packets, self.get());
+	else
+		self->network_thread = utils::named_thread("network_thread", &stream::process_packets, self.get());
 
 	self->command_buffer = std::move(self->device.allocateCommandBuffers({
 	        .commandPool = *self->commandpool,

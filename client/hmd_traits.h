@@ -62,6 +62,7 @@ public:
 	bool late_frame_selection = false;            // select the decoded frame after xrWaitSwapchainImage
 	uint32_t late_latch_safety_us = 0;            // 0 = late latch disabled, otherwise minimum safety margin
 	uint32_t late_latch_compositor_margin_us = 0; // time the compositor needs between xrEndFrame and predicted display
+	bool boost_thread_priority = false;           // raise the priority of the application, network and decoder threads
 	std::unordered_map<std::string, std::string> override_shader;
 	std::unordered_set<std::string> blacklisted_extensions;
 #ifndef NDEBUG
