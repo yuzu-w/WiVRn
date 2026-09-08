@@ -220,6 +220,7 @@ public:
 	        std::string server_name,
 	        scene & parent_scene);
 
+	void before_wait_frame() override;
 	void render(const XrFrameState &) override;
 	void on_focused() override;
 	void on_unfocused() override;
@@ -318,11 +319,17 @@ private:
 	{
 		static constexpr size_t work_window = 120;
 		static constexpr int stats_window = 180; // frames, 2s at 90Hz
-		static constexpr int calm_windows_before_decrease = 5;
+		static constexpr int panic_window = 10;  // frames
+		static constexpr int calm_windows_min = 5;
+		static constexpr int calm_windows_max = 300; // 10 minutes, the probing frequency decays geometrically
+		static constexpr int warmup_frames = 450;    // 5s, the decoders and the runtime are not settled yet
 		static constexpr XrDuration extra_safety_step_up = 500'000;
-		static constexpr XrDuration extra_safety_step_down = 100'000;
-		static constexpr XrDuration extra_safety_max = 6'000'000;
+		static constexpr XrDuration extra_safety_step_panic = 1'000'000;
+		static constexpr XrDuration extra_safety_step_down = 200'000;
+		static constexpr XrDuration extra_safety_initial = 2'000'000; // avoids the initial ramp up at half the frame rate
+		static constexpr XrDuration extra_safety_max = 8'000'000;
 		static constexpr float skip_ratio_high = 0.05;
+		static constexpr float skip_ratio_panic = 0.2;
 		static constexpr float skip_ratio_low = 0.01;
 
 		// Sliding window of the time from wake up to the end of render(), plus GPU time, in seconds
@@ -332,20 +339,36 @@ private:
 		float work_p99 = 0;
 		bool timing = false;
 		std::chrono::steady_clock::time_point work_start;
+		std::optional<std::chrono::steady_clock::time_point> submit_time; // xrEndFrame call
+		int frames_total = 0;
 
-		XrDuration sleep_duration = 0; // last sleep, ns
-		XrDuration extra_safety = 0;   // adaptive safety margin on top of hmd_traits, ns
+		XrDuration sleep_duration = 0;                  // last sleep, ns
+		XrDuration extra_safety = extra_safety_initial; // adaptive safety margin on top of hmd_traits, ns
+		XrTime target_display_time = 0;                 // vsync targeted by the last sleep, 0 if none
+		bool slot_rejected = false;                     // xrWaitFrame returned a later display time than targeted
+		int window_rejected = 0;
+		int window_late = 0;
 
 		// Frame drop statistics for the adaptive safety margin
 		int window_frames = 0;
 		int window_repeats = 0; // times_displayed >= 2: no newer decoded frame was available
 		int window_skips = 0;   // the runtime skipped a display period: we were late
 		int calm_windows = 0;
+		int calm_windows_before_decrease = calm_windows_min; // doubles after each increase, so the probing converges
+		int panic_frames = 0;
+		int panic_skips = 0;
 		float repeat_ratio = 0;
 		float skip_ratio = 0;
+
+		// Sums over the window for the diagnostic log line
+		XrDuration window_sleep = 0;
+		XrDuration window_prediction = 0; // predictedDisplayTime - now at the start of render()
+		XrDuration window_latency = 0;    // displayed - blitted
+		int window_latency_count = 0;
 	};
 	late_latch_state late_latch;
-	void late_latch_sleep(const XrFrameState & frame_state);
+	bool last_should_render = false;
+	void late_latch_begin_frame(const XrFrameState & frame_state);
 	void late_latch_end_frame(bool repeated_frame, bool skipped_frame);
 
 	struct plot

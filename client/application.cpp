@@ -1742,6 +1742,7 @@ void application::loop()
 			}
 			scene->set_focused(true);
 
+			scene->before_wait_frame();
 			XrFrameState framestate = xr_session.wait_frame();
 
 			auto t1 = std::chrono::steady_clock::now();

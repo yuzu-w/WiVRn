@@ -826,32 +826,57 @@ bool scenes::stream::is_gui_interactable() const
 	return is_interactable(gui_status);
 }
 
-void scenes::stream::late_latch_sleep(const XrFrameState & frame_state)
+void scenes::stream::before_wait_frame()
 {
+	// Late latch: the runtime measures the application frame time from the
+	// return of xrWaitFrame, so sleeping after it makes the runtime predict
+	// further ahead and the latency diverges. Sleep before calling it instead.
+	//
+	// The target display time is chosen on the vsync grid from the current time,
+	// not from the previous predicted display time: when xrWaitFrame is called
+	// too late for a vsync it returns the next one, and chasing that would keep
+	// the application one period ahead at half the frame rate.
 	const auto & traits = application::get_hmd_traits();
 	late_latch.sleep_duration = 0;
+	late_latch.target_display_time = 0;
 
+	const XrDuration period = display_time_period;
 	// Wait for the work time window to be filled before trusting the p99
-	if (traits.late_latch_safety_us > 0 and late_latch.work_count >= late_latch.work_window / 4)
+	if (traits.late_latch_safety_us == 0 or not last_should_render or state_ != state::streaming or
+	    last_display_time == 0 or period == 0 or late_latch.work_count < late_latch.work_window / 4)
+		return;
+
+	const XrDuration lead = XrDuration(traits.late_latch_compositor_margin_us) * 1000 +
+	                        XrDuration(late_latch.work_p99 * 1e9) +
+	                        XrDuration(traits.late_latch_safety_us) * 1000 +
+	                        late_latch.extra_safety;
+	const XrTime now = instance.now();
+	const XrDuration phase = display_time_phase;
+	// Earliest vsync that can be reached with the required lead. The runtime never
+	// returns a display time before the previous one, so no need to check for that.
+	XrTime target = now + lead;
+	target = ((target - phase + period - 1) / period) * period + phase;
+	late_latch.target_display_time = target;
+
+	const XrTime wake_up = target - lead;
+	if (wake_up > now)
 	{
-		const XrDuration margin = XrDuration(traits.late_latch_compositor_margin_us) * 1000 +
-		                          XrDuration(late_latch.work_p99 * 1e9) +
-		                          XrDuration(traits.late_latch_safety_us) * 1000 +
-		                          late_latch.extra_safety;
-		const XrTime wake_up = frame_state.predictedDisplayTime - margin;
-		const XrTime now = instance.now();
-		if (wake_up > now)
+		late_latch.sleep_duration = wake_up - now;
+		const timespec ts = instance.to_timespec(wake_up);
+		while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr) == EINTR)
 		{
-			late_latch.sleep_duration = wake_up - now;
-			const timespec ts = instance.to_timespec(wake_up);
-			while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr) == EINTR)
-			{
-			}
 		}
 	}
+}
 
+void scenes::stream::late_latch_begin_frame(const XrFrameState & frame_state)
+{
+	late_latch.window_prediction += frame_state.predictedDisplayTime - instance.now();
+	late_latch.slot_rejected = late_latch.target_display_time and frame_state.predictedDisplayPeriod and
+	                           frame_state.predictedDisplayTime > late_latch.target_display_time + frame_state.predictedDisplayPeriod / 2;
 	late_latch.timing = true;
 	late_latch.work_start = std::chrono::steady_clock::now();
+	late_latch.submit_time.reset();
 }
 
 void scenes::stream::late_latch_end_frame(bool repeated_frame, bool skipped_frame)
@@ -860,8 +885,11 @@ void scenes::stream::late_latch_end_frame(bool repeated_frame, bool skipped_fram
 		return;
 	late_latch.timing = false;
 
-	// Work time: CPU time since wake up plus the GPU time of the last frame
-	const float work = std::chrono::duration<float>(std::chrono::steady_clock::now() - late_latch.work_start).count() + timestamps.gpu_time;
+	// Work time: CPU time from wake up to the xrEndFrame call, plus the GPU time
+	// of the last frame. xrEndFrame itself is excluded: it blocks longer when
+	// the frame is early, which would feed back into the wake up time.
+	const auto submit = late_latch.submit_time.value_or(std::chrono::steady_clock::now());
+	const float work = std::chrono::duration<float>(submit - late_latch.work_start).count() + timestamps.gpu_time;
 	late_latch.work_times[late_latch.work_index] = work;
 	late_latch.work_index = (late_latch.work_index + 1) % late_latch.work_window;
 	late_latch.work_count = std::min(late_latch.work_count + 1, late_latch.work_window);
@@ -876,23 +904,75 @@ void scenes::stream::late_latch_end_frame(bool repeated_frame, bool skipped_fram
 	// Adaptive safety margin: fast increase when the runtime skips frames,
 	// slow decrease after a calm period, evaluated once per window so that a
 	// single burst of skips is not counted several times.
+	const bool adapt = ++late_latch.frames_total >= late_latch_state::warmup_frames and application::get_hmd_traits().late_latch_adaptive;
+	// Only a rejected slot (xrWaitFrame returned a later vsync than the one we
+	// targeted) drives the safety margin: it is the precise signal that we called
+	// it too late. Skipped display periods also happen for unrelated reasons
+	// (system overlays, refresh rate changes) and are only reported.
+	late_latch.window_rejected += late_latch.slot_rejected;
+	const bool late = late_latch.slot_rejected;
+
+	// Panic path: when most frames are late the runtime pipeline settles at half
+	// the frame rate, so react within a few frames instead of a full window
+	++late_latch.panic_frames;
+	late_latch.panic_skips += late;
+	if (late_latch.panic_frames >= late_latch_state::panic_window)
+	{
+		if (adapt and late_latch.panic_skips > late_latch_state::skip_ratio_panic * late_latch.panic_frames and late_latch.extra_safety < late_latch_state::extra_safety_max)
+		{
+			late_latch.calm_windows = 0;
+			late_latch.calm_windows_before_decrease = std::min(late_latch.calm_windows_before_decrease * 2, late_latch_state::calm_windows_max);
+			late_latch.extra_safety = std::min(late_latch.extra_safety + late_latch_state::extra_safety_step_panic, late_latch_state::extra_safety_max);
+			spdlog::info("late latch: {}/{} rejected frames, safety margin increased to {}us", late_latch.panic_skips, late_latch.panic_frames, late_latch.extra_safety / 1000);
+		}
+		late_latch.panic_frames = 0;
+		late_latch.panic_skips = 0;
+	}
+
 	++late_latch.window_frames;
 	late_latch.window_repeats += repeated_frame;
 	late_latch.window_skips += skipped_frame;
+	late_latch.window_late += late;
+	late_latch.window_sleep += late_latch.sleep_duration;
+	if (const auto & h = current_blit_handles[0]; h and h->feedback.blitted)
+	{
+		late_latch.window_latency += h->feedback.displayed - h->feedback.blitted;
+		++late_latch.window_latency_count;
+	}
 	if (late_latch.window_frames >= late_latch_state::stats_window)
 	{
 		late_latch.repeat_ratio = float(late_latch.window_repeats) / late_latch.window_frames;
 		late_latch.skip_ratio = float(late_latch.window_skips) / late_latch.window_frames;
 
-		if (late_latch.skip_ratio > late_latch_state::skip_ratio_high)
+		spdlog::info("late latch: sleep {:.2f}ms, work p99 {:.2f}ms, prediction {:.2f}ms, blitted->displayed {:.2f}ms, repeated {:.1f}%, skipped {:.1f}% (rejected {}), extra safety {}us",
+		             late_latch.window_sleep * 1e-6 / late_latch.window_frames,
+		             late_latch.work_p99 * 1e3,
+		             late_latch.window_prediction * 1e-6 / late_latch.window_frames,
+		             late_latch.window_latency_count ? late_latch.window_latency * 1e-6 / late_latch.window_latency_count : 0.,
+		             100 * late_latch.repeat_ratio,
+		             100 * late_latch.skip_ratio,
+		             late_latch.window_rejected,
+		             late_latch.extra_safety / 1000);
+		late_latch.window_rejected = 0;
+		late_latch.window_sleep = 0;
+		late_latch.window_prediction = 0;
+		late_latch.window_latency = 0;
+		late_latch.window_latency_count = 0;
+
+		const float late_ratio = float(late_latch.window_late) / late_latch.window_frames;
+		if (not adapt)
+		{
+		}
+		else if (late_ratio > late_latch_state::skip_ratio_high)
 		{
 			late_latch.calm_windows = 0;
+			late_latch.calm_windows_before_decrease = std::min(late_latch.calm_windows_before_decrease * 2, late_latch_state::calm_windows_max);
 			late_latch.extra_safety = std::min(late_latch.extra_safety + late_latch_state::extra_safety_step_up, late_latch_state::extra_safety_max);
-			spdlog::info("late latch: {:.1f}% skipped frames, safety margin increased to {}us", 100 * late_latch.skip_ratio, late_latch.extra_safety / 1000);
+			spdlog::info("late latch: {:.1f}% rejected frames, safety margin increased to {}us", 100 * late_ratio, late_latch.extra_safety / 1000);
 		}
-		else if (late_latch.skip_ratio < late_latch_state::skip_ratio_low)
+		else if (late_ratio < late_latch_state::skip_ratio_low)
 		{
-			if (late_latch.calm_windows < late_latch_state::calm_windows_before_decrease)
+			if (late_latch.calm_windows < late_latch.calm_windows_before_decrease)
 				++late_latch.calm_windows;
 			else if (late_latch.extra_safety > 0)
 			{
@@ -906,6 +986,7 @@ void scenes::stream::late_latch_end_frame(bool repeated_frame, bool skipped_fram
 		late_latch.window_frames = 0;
 		late_latch.window_repeats = 0;
 		late_latch.window_skips = 0;
+		late_latch.window_late = 0;
 	}
 }
 
@@ -918,6 +999,8 @@ void scenes::stream::render(const XrFrameState & frame_state)
 	display_time_period = frame_state.predictedDisplayPeriod;
 	real_display_period = last_display_time ? frame_state.predictedDisplayTime - last_display_time : frame_state.predictedDisplayPeriod;
 	last_display_time = frame_state.predictedDisplayTime;
+
+	last_should_render = frame_state.shouldRender;
 
 	std::shared_lock lock(decoder_mutex);
 	if (not frame_state.shouldRender or decoders[0].empty() or decoders[1].empty() or state_ == state::shutdown)
@@ -943,8 +1026,8 @@ void scenes::stream::render(const XrFrameState & frame_state)
 	// The runtime skipped a display period since the last frame: we were too late
 	const bool skipped_frame = frame_state.predictedDisplayPeriod and real_display_period > frame_state.predictedDisplayPeriod * 3 / 2;
 
-	// Sleeps only when late latch is enabled, always starts the work timer for the stats
-	late_latch_sleep(frame_state);
+	// Work timer for late latch (the sleep itself happens in before_wait_frame)
+	late_latch_begin_frame(frame_state);
 
 	if (device.waitForFences(*fence, VK_TRUE, UINT64_MAX) == vk::Result::eTimeout)
 		throw std::runtime_error("Vulkan fence timeout");
@@ -1308,6 +1391,7 @@ void scenes::stream::render(const XrFrameState & frame_state)
 
 		try
 		{
+			late_latch.submit_time = std::chrono::steady_clock::now();
 			render_end();
 		}
 		catch (std::system_error & e)

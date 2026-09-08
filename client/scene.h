@@ -207,6 +207,8 @@ public:
 	virtual ~scene();
 
 	void set_focused(bool status);
+	// Called just before xrWaitFrame, may be used to delay the start of the frame
+	virtual void before_wait_frame() {}
 	virtual void render(const XrFrameState &) = 0;
 	virtual void on_xr_event(const xr::event &);
 
