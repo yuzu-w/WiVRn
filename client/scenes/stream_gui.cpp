@@ -110,6 +110,7 @@ void scenes::stream::accumulate_metrics(XrTime predicted_display_time, const std
 	compact_bandwidth_tx = 0.99 * compact_bandwidth_tx + 0.01 * float(tx - bytes_sent) / dt;
 	compact_cpu_time = 0.99 * compact_cpu_time + 0.01 * application::get_cpu_time().count() * 1e-9f;
 	compact_gpu_time = 0.99 * compact_gpu_time + 0.01 * timestamps.gpu_time;
+	compact_late_latch_sleep = 0.99 * compact_late_latch_sleep + 0.01 * late_latch.sleep_duration * 1e-9f;
 
 	last_metric_time = predicted_display_time;
 	bytes_received = rx;
@@ -119,6 +120,10 @@ void scenes::stream::accumulate_metrics(XrTime predicted_display_time, const std
 	global_metrics[metrics_offset].cpu_time = application::get_cpu_time().count() * 1e-9f;
 	global_metrics[metrics_offset].bandwidth_rx = bandwidth_rx * 8;
 	global_metrics[metrics_offset].bandwidth_tx = bandwidth_tx * 8;
+	global_metrics[metrics_offset].late_latch_sleep = late_latch.sleep_duration * 1e-9f;
+	global_metrics[metrics_offset].late_latch_work_p99 = late_latch.work_p99;
+	global_metrics[metrics_offset].repeated_frames = late_latch.repeat_ratio * 100;
+	global_metrics[metrics_offset].skipped_frames = late_latch.skip_ratio * 100;
 
 	std::vector<shard_accumulator::blit_handle *> active_handles;
 	active_handles.reserve(blit_handles.size());
@@ -180,6 +185,12 @@ void scenes::stream::gui_performance_metrics()
 
 	        plot(_("Network"), {{_("Download"),  &global_metric::bandwidth_rx},
 	                            {_("Upload"),    &global_metric::bandwidth_tx}}, "bit/s"),
+
+	        plot(_("Late latch"), {{_("Sleep"),    &global_metric::late_latch_sleep},
+	                               {_("Work p99"), &global_metric::late_latch_work_p99}}, "s"),
+
+	        plot(_("Dropped frames"), {{_("Repeated"), &global_metric::repeated_frames},
+	                                   {_("Skipped"),  &global_metric::skipped_frames}}, "%"),
 	        // clang-format on
 	};
 
@@ -379,6 +390,11 @@ void scenes::stream::gui_compact_view()
 		f(_S("Upload"), 8 * compact_bandwidth_tx * 1e-6, "Mbit/s");
 		f(_S("CPU time"), compact_cpu_time * 1000, "ms");
 		f(_S("GPU time"), compact_gpu_time * 1000, "ms");
+		f(_S("Late latch sleep"), compact_late_latch_sleep * 1000, "ms");
+		f(_S("Work time p99"), late_latch.work_p99 * 1000, "ms");
+		f(_S("Safety margin"), (application::get_hmd_traits().late_latch_safety_us * 1000 + late_latch.extra_safety) * 1e-6f, "ms");
+		f(_S("Repeated frames"), late_latch.repeat_ratio * 100, "%");
+		f(_S("Skipped frames"), late_latch.skip_ratio * 100, "%");
 		f(_S("Motion to photon latency"),
 		  tracking_control.lock()->motions_to_photons / 1'000'000.f,
 		  "ms");

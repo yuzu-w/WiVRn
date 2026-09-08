@@ -97,6 +97,8 @@ public:
 	                      std::vector<XrActionSuggestedBinding> & bindings);
 
 	XrTime now();
+	// Convert an XrTime to a CLOCK_MONOTONIC timespec
+	timespec to_timespec(XrTime time);
 
 	static std::vector<XrExtensionProperties> extensions(const char * layer_name = nullptr);
 

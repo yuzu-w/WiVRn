@@ -343,6 +343,15 @@ XrTime xr::instance::now()
 	return res;
 }
 
+timespec xr::instance::to_timespec(XrTime time)
+{
+	static PFN_xrConvertTimeToTimespecTimeKHR xrConvertTimeToTimespecTimeKHR =
+	        get_proc<PFN_xrConvertTimeToTimespecTimeKHR>("xrConvertTimeToTimespecTimeKHR");
+	timespec ts;
+	CHECK_XR(xrConvertTimeToTimespecTimeKHR(id, time, &ts));
+	return ts;
+}
+
 std::vector<XrExtensionProperties> xr::instance::extensions(const char * layer_name)
 {
 	return xr::details::enumerate<XrExtensionProperties>(xrEnumerateInstanceExtensionProperties, layer_name);

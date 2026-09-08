@@ -31,6 +31,8 @@
 #include "wivrn_client.h"
 #include "wivrn_packets.h"
 #include "xr/space.h"
+#include <array>
+#include <chrono>
 #include <mutex>
 #include <optional>
 #include <queue>
@@ -304,7 +306,47 @@ private:
 		float cpu_time = 0;
 		float bandwidth_rx = 0;
 		float bandwidth_tx = 0;
+		float late_latch_sleep = 0;
+		float late_latch_work_p99 = 0;
+		float repeated_frames = 0; // percent
+		float skipped_frames = 0;  // percent
 	};
+
+	// Late latch: sleep at the beginning of render() so that the frame is
+	// selected as late as possible, see hmd_traits::late_latch_safety_us
+	struct late_latch_state
+	{
+		static constexpr size_t work_window = 120;
+		static constexpr int stats_window = 180; // frames, 2s at 90Hz
+		static constexpr int calm_windows_before_decrease = 5;
+		static constexpr XrDuration extra_safety_step_up = 500'000;
+		static constexpr XrDuration extra_safety_step_down = 100'000;
+		static constexpr XrDuration extra_safety_max = 6'000'000;
+		static constexpr float skip_ratio_high = 0.05;
+		static constexpr float skip_ratio_low = 0.01;
+
+		// Sliding window of the time from wake up to the end of render(), plus GPU time, in seconds
+		std::array<float, work_window> work_times{};
+		size_t work_index = 0;
+		size_t work_count = 0;
+		float work_p99 = 0;
+		bool timing = false;
+		std::chrono::steady_clock::time_point work_start;
+
+		XrDuration sleep_duration = 0; // last sleep, ns
+		XrDuration extra_safety = 0;   // adaptive safety margin on top of hmd_traits, ns
+
+		// Frame drop statistics for the adaptive safety margin
+		int window_frames = 0;
+		int window_repeats = 0; // times_displayed >= 2: no newer decoded frame was available
+		int window_skips = 0;   // the runtime skipped a display period: we were late
+		int calm_windows = 0;
+		float repeat_ratio = 0;
+		float skip_ratio = 0;
+	};
+	late_latch_state late_latch;
+	void late_latch_sleep(const XrFrameState & frame_state);
+	void late_latch_end_frame(bool repeated_frame, bool skipped_frame);
 
 	struct plot
 	{
@@ -347,6 +389,7 @@ private:
 	float compact_bandwidth_tx = 0;
 	float compact_cpu_time = 0;
 	float compact_gpu_time = 0;
+	float compact_late_latch_sleep = 0;
 
 	void accumulate_metrics(XrTime predicted_display_time, const std::array<std::shared_ptr<wivrn::shard_accumulator::blit_handle>, decoder_count> & blit_handles, const gpu_timestamps & timestamps);
 	void gui_performance_metrics();

@@ -40,6 +40,8 @@
 #include "utils/ranges.h"
 #include "wivrn_packets.h"
 #include <algorithm>
+#include <chrono>
+#include <ctime>
 #include <mutex>
 #include <ranges>
 #include <thread>
@@ -821,6 +823,89 @@ bool scenes::stream::is_gui_interactable() const
 	return is_interactable(gui_status);
 }
 
+void scenes::stream::late_latch_sleep(const XrFrameState & frame_state)
+{
+	const auto & traits = application::get_hmd_traits();
+	late_latch.sleep_duration = 0;
+
+	// Wait for the work time window to be filled before trusting the p99
+	if (traits.late_latch_safety_us > 0 and late_latch.work_count >= late_latch.work_window / 4)
+	{
+		const XrDuration margin = XrDuration(traits.late_latch_compositor_margin_us) * 1000 +
+		                          XrDuration(late_latch.work_p99 * 1e9) +
+		                          XrDuration(traits.late_latch_safety_us) * 1000 +
+		                          late_latch.extra_safety;
+		const XrTime wake_up = frame_state.predictedDisplayTime - margin;
+		const XrTime now = instance.now();
+		if (wake_up > now)
+		{
+			late_latch.sleep_duration = wake_up - now;
+			const timespec ts = instance.to_timespec(wake_up);
+			while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr) == EINTR)
+			{
+			}
+		}
+	}
+
+	late_latch.timing = true;
+	late_latch.work_start = std::chrono::steady_clock::now();
+}
+
+void scenes::stream::late_latch_end_frame(bool repeated_frame, bool skipped_frame)
+{
+	if (not late_latch.timing)
+		return;
+	late_latch.timing = false;
+
+	// Work time: CPU time since wake up plus the GPU time of the last frame
+	const float work = std::chrono::duration<float>(std::chrono::steady_clock::now() - late_latch.work_start).count() + timestamps.gpu_time;
+	late_latch.work_times[late_latch.work_index] = work;
+	late_latch.work_index = (late_latch.work_index + 1) % late_latch.work_window;
+	late_latch.work_count = std::min(late_latch.work_count + 1, late_latch.work_window);
+
+	// p99 of the window (the scheduling jitter makes the mean useless)
+	std::array<float, late_latch_state::work_window> sorted;
+	std::copy_n(late_latch.work_times.begin(), late_latch.work_count, sorted.begin());
+	const size_t nth = late_latch.work_count * 99 / 100;
+	std::nth_element(sorted.begin(), sorted.begin() + nth, sorted.begin() + late_latch.work_count);
+	late_latch.work_p99 = sorted[nth];
+
+	// Adaptive safety margin: fast increase when the runtime skips frames,
+	// slow decrease after a calm period, evaluated once per window so that a
+	// single burst of skips is not counted several times.
+	++late_latch.window_frames;
+	late_latch.window_repeats += repeated_frame;
+	late_latch.window_skips += skipped_frame;
+	if (late_latch.window_frames >= late_latch_state::stats_window)
+	{
+		late_latch.repeat_ratio = float(late_latch.window_repeats) / late_latch.window_frames;
+		late_latch.skip_ratio = float(late_latch.window_skips) / late_latch.window_frames;
+
+		if (late_latch.skip_ratio > late_latch_state::skip_ratio_high)
+		{
+			late_latch.calm_windows = 0;
+			late_latch.extra_safety = std::min(late_latch.extra_safety + late_latch_state::extra_safety_step_up, late_latch_state::extra_safety_max);
+			spdlog::info("late latch: {:.1f}% skipped frames, safety margin increased to {}us", 100 * late_latch.skip_ratio, late_latch.extra_safety / 1000);
+		}
+		else if (late_latch.skip_ratio < late_latch_state::skip_ratio_low)
+		{
+			if (late_latch.calm_windows < late_latch_state::calm_windows_before_decrease)
+				++late_latch.calm_windows;
+			else if (late_latch.extra_safety > 0)
+			{
+				late_latch.extra_safety = std::max<XrDuration>(late_latch.extra_safety - late_latch_state::extra_safety_step_down, 0);
+				spdlog::info("late latch: safety margin decreased to {}us", late_latch.extra_safety / 1000);
+			}
+		}
+		else
+			late_latch.calm_windows = 0;
+
+		late_latch.window_frames = 0;
+		late_latch.window_repeats = 0;
+		late_latch.window_skips = 0;
+	}
+}
+
 void scenes::stream::render(const XrFrameState & frame_state)
 {
 	if (state_ == state::shutdown)
@@ -851,6 +936,12 @@ void scenes::stream::render(const XrFrameState & frame_state)
 		next_gui_status = stream_tab::hidden;
 		application::pop_scene();
 	}
+
+	// The runtime skipped a display period since the last frame: we were too late
+	const bool skipped_frame = frame_state.predictedDisplayPeriod and real_display_period > frame_state.predictedDisplayPeriod * 3 / 2;
+
+	// Sleeps only when late latch is enabled, always starts the work timer for the stats
+	late_latch_sleep(frame_state);
 
 	if (device.waitForFences(*fence, VK_TRUE, UINT64_MAX) == vk::Result::eTimeout)
 		throw std::runtime_error("Vulkan fence timeout");
@@ -1284,6 +1375,10 @@ void scenes::stream::render(const XrFrameState & frame_state)
 	}
 
 	query_pool_filled = true;
+
+	late_latch_end_frame(
+	        std::ranges::any_of(current_blit_handles, [](const auto & h) { return h and h->feedback.times_displayed >= 2; }),
+	        skipped_frame);
 }
 
 void scenes::stream::exit()
