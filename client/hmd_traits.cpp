@@ -67,7 +67,11 @@ std::optional<std::string> env(std::string_view name)
 {
 #ifdef __ANDROID__
 	auto android_sysprop_name = std::format("debug.wivrn.{}", name);
-	return get_property(android_sysprop_name.c_str());
+	auto value = get_property(android_sysprop_name.c_str());
+	// Properties can't be deleted, only set to an empty string: treat it as unset
+	if (value and value->empty())
+		return std::nullopt;
+	return value;
 #else
 	std::string env_name = "WIVRN_";
 	env_name.reserve(env_name.size() + name.size());
@@ -93,7 +97,7 @@ std::optional<uint32_t> env(std::string_view name)
 			return std::nullopt;
 		return static_cast<uint32_t>(parsed);
 	}
-	catch (std::runtime_error & e)
+	catch (std::exception & e)
 	{
 		spdlog::warn("failed to parse {} (value: {}: {}", name, *value, e.what());
 		return std::nullopt;
