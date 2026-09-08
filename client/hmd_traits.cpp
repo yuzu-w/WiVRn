@@ -191,6 +191,11 @@ void hmd_traits::init()
 			panel_width_override = 2064; // Quest 3
 			controller_profile = "meta-quest-touch-plus";
 			usb_net = true;
+			decoder_low_latency = true;
+			nonblocking_gpu_query = true;
+			late_frame_selection = true;
+			late_latch_safety_us = 1500;
+			late_latch_compositor_margin_us = 9000;
 		}
 		else if (device == "panther") // Quest 3S
 		{

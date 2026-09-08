@@ -56,6 +56,12 @@ public:
 	bool pico_face_tracker = false;
 	bool discard_frame = true; // can do xrBeginFrame twice to discard the first one
 	bool usb_net = false;
+	// Latency tuning (see scenes/stream.cpp)
+	bool decoder_low_latency = false;             // MediaCodec low latency mode (no output reordering)
+	bool nonblocking_gpu_query = false;           // don't wait for the GPU timestamp query used for stats
+	bool late_frame_selection = false;            // select the decoded frame after xrWaitSwapchainImage
+	uint32_t late_latch_safety_us = 0;            // 0 = late latch disabled, otherwise minimum safety margin
+	uint32_t late_latch_compositor_margin_us = 0; // time the compositor needs between xrEndFrame and predicted display
 	std::unordered_map<std::string, std::string> override_shader;
 	std::unordered_set<std::string> blacklisted_extensions;
 #ifndef NDEBUG
