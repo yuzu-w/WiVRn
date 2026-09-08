@@ -1230,23 +1230,18 @@ void scenes::stream::render(const XrFrameState & frame_state)
 
 			select_frames();
 
-			if (not should_render())
+			// The image is already acquired: a repeated frame is rendered again
+			// instead of taking the discard_frame path. Releasing the image
+			// without rendering to it makes the compositor show it anyway and
+			// causes a visible glitch on every repeated frame.
+			XrExtent2Di max = compute_extents(foveation, extents);
+			if (swapchain.width() < max.width or swapchain.height() < max.height)
 			{
-				// Give back the image without rendering to it, it is not referenced by any layer
+				// Foveation parameters changed, rare: release the image and start again
 				swapchain.release();
-				render_frame = false;
-			}
-			else
-			{
-				XrExtent2Di max = compute_extents(foveation, extents);
-				if (swapchain.width() < max.width or swapchain.height() < max.height)
-				{
-					// Foveation parameters changed, rare: release the image and start again
-					swapchain.release();
-					ensure_swapchain(extents, max);
-					image_index = swapchain.acquire();
-					swapchain.wait();
-				}
+				ensure_swapchain(extents, max);
+				image_index = swapchain.acquire();
+				swapchain.wait();
 			}
 		}
 		else
