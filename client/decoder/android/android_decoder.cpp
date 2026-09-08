@@ -136,8 +136,15 @@ decoder::decoder(
 	{
 		AMediaFormat_ptr format(AMediaFormat_new());
 		AMediaFormat_setString(format.get(), AMEDIAFORMAT_KEY_MIME, mime(description.codec[stream_index]));
-		// AMediaFormat_setInt32(format.get(), "vendor.qti-ext-dec-low-latency.enable", 1); // Qualcomm low
-		// latency mode
+		if (application::get_hmd_traits().decoder_low_latency)
+		{
+			// Disable output reordering: the stream has no B-frames so the reorder
+			// buffer only adds latency. "low-latency" is AMEDIAFORMAT_KEY_LOW_LATENCY,
+			// spelled out because the symbol is only exported for API >= 30.
+			AMediaFormat_setInt32(format.get(), "low-latency", 1);
+			AMediaFormat_setInt32(format.get(), "vendor.qti-ext-dec-low-latency.enable", 1); // Qualcomm low latency mode
+			spdlog::info("MediaCodec low latency mode requested");
+		}
 		AMediaFormat_setInt32(format.get(), AMEDIAFORMAT_KEY_WIDTH, width);
 		AMediaFormat_setInt32(format.get(), AMEDIAFORMAT_KEY_HEIGHT, height);
 		AMediaFormat_setInt32(format.get(), AMEDIAFORMAT_KEY_OPERATING_RATE, std::ceil(description.frame_rate));
