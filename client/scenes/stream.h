@@ -292,6 +292,8 @@ private:
 	{
 		float gpu_time = 0;
 	};
+	// Last successfully read timestamps, kept when the query is not ready
+	gpu_timestamps timestamps;
 
 	struct global_metric
 	{

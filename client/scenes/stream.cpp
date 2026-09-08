@@ -858,15 +858,19 @@ void scenes::stream::render(const XrFrameState & frame_state)
 	// We don't need those after vkWaitForFences
 	current_blit_handles.fill(nullptr);
 
-	gpu_timestamps timestamps;
+	// The timestamps are only used for the stats panel: when nonblocking_gpu_query
+	// is set, don't wait for them and keep the previous values if they are not ready
 	if (query_pool_filled)
 	{
+		vk::QueryResultFlags flags = vk::QueryResultFlagBits::e64;
+		if (not application::get_hmd_traits().nonblocking_gpu_query)
+			flags |= vk::QueryResultFlagBits::eWait;
 		auto [res, timestamps2] = query_pool.getResults<uint64_t>(
 		        0,
 		        size_gpu_timestamps,
 		        size_gpu_timestamps * sizeof(uint64_t),
 		        sizeof(uint64_t),
-		        vk::QueryResultFlagBits::e64 | vk::QueryResultFlagBits::eWait);
+		        flags);
 
 		if (res == vk::Result::eSuccess)
 		{
