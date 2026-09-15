@@ -367,6 +367,18 @@ private:
 		int window_latency_count = 0;
 	};
 	late_latch_state late_latch;
+
+	// Pipeline breakdown log
+	struct pipeline_stage
+	{
+		int64_t sum = 0;
+		int64_t max = 0;
+	};
+	struct
+	{
+		pipeline_stage encode, send, network, transfer, decode, idle, display, total, prediction;
+		int frames = 0;
+	} pipeline;
 	bool last_should_render = false;
 	void late_latch_begin_frame(const XrFrameState & frame_state);
 	void late_latch_end_frame(bool repeated_frame, bool skipped_frame);

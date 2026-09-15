@@ -18,6 +18,7 @@
  */
 
 #include "stream.h"
+#include <format>
 
 #include "application.h"
 #include "configuration.h"
@@ -168,6 +169,43 @@ void scenes::stream::accumulate_metrics(XrTime predicted_display_time, const std
 	}
 
 	metrics_offset = (metrics_offset + 1) % global_metrics.size();
+
+	// Pipeline breakdown log, per window, for stream 0 (see late latch log for the display side)
+	if (const auto & bh = blit_handles[0]; bh and bh->feedback.times_displayed == 1 and bh->feedback.encode_begin)
+	{
+		const auto & f = bh->feedback;
+		auto acc = [&](pipeline_stage & st, int64_t ns) {
+			st.sum += ns;
+			st.max = std::max(st.max, ns);
+		};
+		acc(pipeline.encode, f.encode_end - f.encode_begin);
+		acc(pipeline.send, f.send_end - f.send_begin);
+		acc(pipeline.network, f.received_last_packet - f.send_begin);
+		acc(pipeline.transfer, f.received_last_packet - f.received_first_packet);
+		acc(pipeline.decode, f.received_from_decoder - f.sent_to_decoder);
+		acc(pipeline.idle, f.blitted - f.received_from_decoder);
+		acc(pipeline.display, f.displayed - f.blitted);
+		acc(pipeline.total, f.displayed - f.encode_begin);
+		acc(pipeline.prediction, bh->view_info.display_time - f.displayed);
+		if (++pipeline.frames >= 180)
+		{
+			auto fmt = [&](const pipeline_stage & st) {
+				return std::format("{:.1f}/{:.1f}", st.sum * 1e-6 / pipeline.frames, st.max * 1e-6);
+			};
+			spdlog::info("pipeline (avg/max ms): encode {}, send {}, network {}, first->last packet {}, decode {}, idle {}, blit->display {}, total {}, predicted-displayed {}, m2p {:.1f}",
+			             fmt(pipeline.encode),
+			             fmt(pipeline.send),
+			             fmt(pipeline.network),
+			             fmt(pipeline.transfer),
+			             fmt(pipeline.decode),
+			             fmt(pipeline.idle),
+			             fmt(pipeline.display),
+			             fmt(pipeline.total),
+			             fmt(pipeline.prediction),
+			             tracking_control.lock()->motions_to_photons / 1e6);
+			pipeline = {};
+		}
+	}
 }
 
 void scenes::stream::gui_performance_metrics()
