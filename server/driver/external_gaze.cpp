@@ -109,11 +109,14 @@ void external_gaze_receiver::run(std::stop_token stop)
 					if (pkt.flags & flag_valid)
 					{
 						comp.set_external_gaze(xrt_quat{pkt.x, pkt.y, pkt.z, pkt.w});
+						if (not have_gaze)
+							U_LOG_I("External gaze: receiving, foveation follows the external eye tracker");
 						have_gaze = true;
 						deadline = now + timeout;
 					}
 					else if (have_gaze)
 					{
+						U_LOG_I("External gaze: sender reports no gaze, back to default foveation center");
 						comp.set_external_gaze(xrt_quat{});
 						have_gaze = false;
 					}
@@ -127,7 +130,7 @@ void external_gaze_receiver::run(std::stop_token stop)
 
 		if (have_gaze and now >= deadline)
 		{
-			U_LOG_D("External gaze timed out, back to default foveation center");
+			U_LOG_I("External gaze: timed out, back to default foveation center");
 			comp.set_external_gaze(xrt_quat{});
 			have_gaze = false;
 		}
