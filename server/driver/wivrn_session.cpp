@@ -266,6 +266,18 @@ wivrn::wivrn_session::wivrn_session(std::unique_ptr<wivrn_connection> connection
 		strlcpy(xrt_system.base.properties.name, system_name.c_str(), std::size(xrt_system.base.properties.name));
 	}
 
+	if (conf.external_gaze.enabled)
+	{
+		try
+		{
+			external_gaze.emplace(compositor, conf.external_gaze.port, conf.external_gaze.timeout);
+		}
+		catch (std::exception & e)
+		{
+			U_LOG_E("External gaze receiver disabled: %s", e.what());
+		}
+	}
+
 	if (conf.hid_forwarding)
 	{
 		try

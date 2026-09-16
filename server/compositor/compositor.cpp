@@ -823,6 +823,11 @@ void compositor::update_foveation_center_override(const from_headset::override_f
 	foveation.update_foveation_center_override(center);
 }
 
+void compositor::set_external_gaze(const xrt_quat & gaze)
+{
+	foveation.set_external_gaze(gaze);
+}
+
 void compositor::resume()
 {
 	for (auto & encoder: encoders)

@@ -458,6 +458,12 @@ void foveation::update_foveation_center_override(const from_headset::override_fo
 	manual_foveation = center;
 }
 
+void foveation::set_external_gaze(const xrt_quat & q)
+{
+	std::lock_guard lock(mutex);
+	gaze = q;
+}
+
 static void fill_ubo(
         std::span<uint32_t> ubo,
         const std::vector<uint16_t> & params,

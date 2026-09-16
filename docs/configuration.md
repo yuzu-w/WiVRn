@@ -145,6 +145,36 @@ no permission and is always available. Only the digested controller state is for
 (buttons, two sticks, analog triggers and a d-pad), so device specific features such as gyro,
 adaptive triggers or the touchpad are not available.
 
+## `external-gaze`
+Default value: `{"enabled": false, "port": 9021, "timeout-ms": 200}`
+
+Receive a gaze direction from an external eye tracker and use it as the center of the foveated encoding, for headsets without built-in eye tracking.
+The server listens on UDP `127.0.0.1:<port>` only. Any program can send the packets; WiVRn does not know about the eye tracker itself.
+
+Each packet is 32 bytes, little endian:
+
+| offset | type | field | description |
+|---|---|---|---|
+| 0 | `u32` | magic | `0x5A475657` (`"WVGZ"`) |
+| 4 | `u16` | version | `1` |
+| 6 | `u16` | flags | bit 0: gaze valid. Send `0` for no gaze (eyes closed, tracking lost) |
+| 8 | `i64` | timestamp_ns | sender's `CLOCK_MONOTONIC`, used for latency logging only |
+| 16 | `f32[4]` | x, y, z, w | gaze orientation quaternion in view (head) space, -Z forward, +Y up |
+
+When no valid packet has been received for `timeout-ms`, the gaze is cleared and foveation falls back to its default center.
+Packets with a wrong size, magic or version are dropped.
+
+### Example
+```json
+{
+	"external-gaze": {
+		"enabled": true,
+		"port": 9021,
+		"timeout-ms": 200
+	}
+}
+```
+
 ## `debug-gui`
 Default value: `false`
 

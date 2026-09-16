@@ -225,6 +225,13 @@ configuration::configuration()
 				throw std::runtime_error("invalid service publication " + it->get<std::string>());
 		}
 
+		if (auto it = json.find("external-gaze"); it != json.end())
+		{
+			external_gaze.enabled = it->value("enabled", external_gaze.enabled);
+			external_gaze.port = it->value("port", external_gaze.port);
+			external_gaze.timeout = std::chrono::milliseconds(it->value("timeout-ms", external_gaze.timeout.count()));
+		}
+
 		if (auto it = json.find("openvr-compat-path"); it != json.end())
 		{
 			if (it->is_null())

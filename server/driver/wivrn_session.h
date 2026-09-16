@@ -22,6 +22,7 @@
 #include "app_pacer.h"
 #include "clock_offset.h"
 #include "compositor/compositor.h"
+#include "external_gaze.h"
 #include "inplace_vector.hpp"
 #include "tracking_control.h"
 #include "utils/thread_safe.h"
@@ -104,6 +105,7 @@ class wivrn_session : public xrt_system_devices
 	std::optional<wivrn_body_tracker> body_tracker;
 	beman::inplace_vector::inplace_vector<wivrn_generic_tracker, from_headset::htc_body::max_tracked_poses> generic_trackers;
 	std::optional<wivrn_uinput> uinput_handler;
+	std::optional<external_gaze_receiver> external_gaze;
 	bool gamepad_connected = false; // network thread only
 
 	clock_offset_estimator offset_est;

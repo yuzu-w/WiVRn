@@ -87,6 +87,8 @@ public:
 
 	void update_tracking(const from_headset::tracking &);
 	void update_foveation_center_override(const from_headset::override_foveation_center &);
+	// Gaze in view space from a source other than the headset, zero quaternion for none
+	void set_external_gaze(const xrt_quat &);
 
 	std::array<to_headset::foveation_parameter, 2> foveate(
 	        vk::raii::Device &,

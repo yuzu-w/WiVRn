@@ -119,6 +119,7 @@ if (WIVRN_BUILD_SERVER)
 			driver/app_pacer.cpp
 			driver/clock_offset.cpp
 			driver/configuration.cpp
+			driver/external_gaze.cpp
 			driver/hand_joints_list.cpp
 			driver/pose_list.cpp
 			driver/tracking_control.cpp

@@ -63,6 +63,15 @@ struct configuration
 	bool tcp_only = false;
 	int port = wivrn::default_port;
 	std::string hostname = wivrn::hostname();
+
+	// Gaze direction received on loopback UDP from an external eye tracker,
+	// used to center the foveated encoding. See docs/configuration.md.
+	struct
+	{
+		bool enabled = false;
+		int port = 9021;
+		std::chrono::milliseconds timeout{200};
+	} external_gaze;
 	service_publication publication = service_publication::avahi;
 
 	// monostate: default value, string: user defined, nullptr: disabled

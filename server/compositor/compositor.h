@@ -190,6 +190,7 @@ public:
 	void set_bitrate(uint32_t);
 	void update_tracking(const from_headset::tracking &);
 	void update_foveation_center_override(const from_headset::override_foveation_center &);
+	void set_external_gaze(const xrt_quat &);
 
 	void resume();
 
