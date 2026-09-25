@@ -250,10 +250,10 @@ msgstr "禁用串流内窗口"
 msgctxt "confirmation message"
 msgid ""
 "Do you really want to disable the in-stream window?\n"
-"You will not be able to re-open it with the thumbsticks."
+"You will not be able to re-open it with the left thumbstick."
 msgstr ""
 "确定要禁用串流内窗口吗？\n"
-"禁用后将无法通过摇杆重新打开。"
+"禁用后将无法通过左摇杆重新打开。"
 
 #: client/scenes/gui_settings.cpp:437 client/scenes/lobby_gui.cpp:886
 msgid "Yes"
@@ -539,8 +539,8 @@ msgstr "串流内窗口"
 #: client/scenes/gui_settings.cpp:763
 msgid ""
 "Enables the configuration window to be shown while the game is streaming. If "
-"enabled, the window is activated by pressing both thumbsticks."
-msgstr "启用后，游戏串流过程中可显示配置窗口。按下两个摇杆即可呼出该窗口。"
+"enabled, the window is activated by pressing the left thumbstick."
+msgstr "启用后，游戏串流过程中可显示配置窗口。按下左摇杆即可呼出该窗口。"
 
 #: client/scenes/gui_settings.cpp:779
 msgctxt "page header title"
@@ -1177,8 +1177,8 @@ msgid "Press the grip button to move the window"
 msgstr "按下抓握键来移动窗口"
 
 #: client/scenes/stream_gui.cpp:360 client/scenes/stream_gui.cpp:623
-msgid "Press both thumbsticks to display the WiVRn window"
-msgstr "同时按下两侧摇杆以显示 WiVRn 窗口"
+msgid "Press the left thumbstick to display the WiVRn window"
+msgstr "按下左摇杆以显示 WiVRn 窗口"
 
 #: client/scenes/stream_gui.cpp:382
 msgid "Motion to photon latency"

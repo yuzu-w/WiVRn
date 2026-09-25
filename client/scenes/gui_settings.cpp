@@ -433,7 +433,7 @@ void settings_streaming(const settings_context & ctx)
 	if (wivrn::ui::confirm_modal(
 	            "confirm disable in stream gui",
 	            _C("confirmation messagebox title", "Disable in-stream window"),
-	            _C("confirmation message", "Do you really want to disable the in-stream window?\nYou will not be able to re-open it with the thumbsticks."),
+	            _C("confirmation message", "Do you really want to disable the in-stream window?\nYou will not be able to re-open it with the left thumbstick."),
 	            _("Yes"),
 	            _("No"),
 	            true) == 1)
@@ -775,7 +775,7 @@ void settings_system(const settings_context & ctx)
 	list.push_back({
 	        .id = "##stream_gui",
 	        .label = _C("setting name", "In-stream window"),
-	        .description = _("Enables the configuration window to be shown while the game is streaming. If enabled, the window is activated by pressing both thumbsticks."),
+	        .description = _("Enables the configuration window to be shown while the game is streaming. If enabled, the window is activated by pressing the left thumbstick."),
 	        .ui = ui_kind::toggle,
 	        .get_bool = [&config, &disable_instream_gui_popup_open] { return config.enable_stream_gui and not disable_instream_gui_popup_open; },
 	        .set_bool = [&ctx, &config, &disable_instream_gui](bool v) {

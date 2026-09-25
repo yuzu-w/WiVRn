@@ -262,7 +262,7 @@ msgstr ""
 #: client/scenes/gui_settings.cpp:451
 msgid ""
 "Enables the configuration window to be shown while the game is streaming. If"
-" enabled, the window is activated by pressing both thumbsticks."
+" enabled, the window is activated by pressing the left thumbstick."
 msgstr ""
 
 #: client/scenes/gui_settings.cpp:458
@@ -1165,8 +1165,8 @@ msgid "Press the grip button to move the window"
 msgstr "按下握把按鈕來移動視窗"
 
 #: client/scenes/stream_gui.cpp:357 client/scenes/stream_gui.cpp:613
-msgid "Press both thumbsticks to display the WiVRn window"
-msgstr "同時按下兩側搖桿以顯示 WiVRn 視窗"
+msgid "Press the left thumbstick to display the WiVRn window"
+msgstr "按下左搖桿以顯示 WiVRn 視窗"
 
 #: client/scenes/stream_gui.cpp:379
 msgid "Motion to photon latency"
