@@ -27,6 +27,8 @@
 #include "xr/system.h"
 #include "xr/to_string.h"
 #include <ranges>
+#include <spdlog/fmt/ranges.h>
+#include <spdlog/spdlog.h>
 #include <vulkan/vulkan.h>
 #include <openxr/openxr_platform.h>
 
@@ -57,6 +59,7 @@ xr::session::session(xr::instance & inst, xr::system & sys, vk::raii::Instance &
 		xrGetDisplayRefreshRateFB = inst.get_proc<PFN_xrGetDisplayRefreshRateFB>("xrGetDisplayRefreshRateFB");
 		xrEnumerateDisplayRefreshRatesFB = inst.get_proc<PFN_xrEnumerateDisplayRefreshRatesFB>("xrEnumerateDisplayRefreshRatesFB");
 		xrRequestDisplayRefreshRateFB = inst.get_proc<PFN_xrRequestDisplayRefreshRateFB>("xrRequestDisplayRefreshRateFB");
+		spdlog::info("Available refresh rates: {}", fmt::join(get_refresh_rates(), ", "));
 	}
 
 	if (inst.has_extension(XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME))
