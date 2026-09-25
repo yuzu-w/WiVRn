@@ -27,6 +27,7 @@
 #include <string>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 #include <openxr/openxr.h>
 
 using hmd_permissions = magic_enum::containers::array<feature, const char *>;
@@ -66,6 +67,7 @@ public:
 	bool boost_thread_priority = false;           // raise the priority of the application, network and decoder threads
 	std::unordered_map<std::string, std::string> override_shader;
 	std::unordered_set<std::string> blacklisted_extensions;
+	std::vector<float> extra_refresh_rates;
 #ifndef NDEBUG
 	bool initialized_ = false;
 #endif
