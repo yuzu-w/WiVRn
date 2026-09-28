@@ -599,6 +599,8 @@ static xrt_device_name get_name(interaction_profile profile)
 			return XRT_DEVICE_SAMSUNG_ODYSSEY_CONTROLLER;
 		case interaction_profile::valve_index_controller:
 			return XRT_DEVICE_INDEX_CONTROLLER;
+		case interaction_profile::valve_frame_controller_valve:
+			return XRT_DEVICE_FRAME_CONTROLLER;
 	}
 	throw std::runtime_error("invalid interaction profile id " + std::to_string(int(profile)));
 }
@@ -1354,8 +1356,7 @@ void wivrn_session::stop_application(std::optional<uint32_t> id, int64_t timeout
 	scoped_lock lock(mnd_ipc_server->global_state.lock);
 	for (auto & t: mnd_ipc_server->threads)
 	{
-		// Monado doesn't set state to IPC_THREAD_RUNNING
-		if (t.state != IPC_THREAD_STARTING)
+		if (t.state == IPC_THREAD_READY || t.state == IPC_THREAD_STOPPING)
 			continue;
 
 		uint32_t client_id = t.ics.client_state.id;
