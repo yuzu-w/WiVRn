@@ -249,18 +249,6 @@ std::shared_ptr<scenes::stream> scenes::stream::create(std::unique_ptr<wivrn_ses
 		        .variant = application::get_messages_info().variant,
 		};
 
-		{
-			auto [flags, views] = self->session.locate_views(
-			        XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
-			        self->instance.now(),
-			        application::space(xr::spaces::view));
-
-			assert(views.size() == info.fov.size());
-
-			for (auto [i, j]: std::views::zip(views, info.fov))
-				j = i.fov;
-		}
-
 		const auto & config = application::get_config();
 
 		{
@@ -357,7 +345,8 @@ std::shared_ptr<scenes::stream> scenes::stream::create(std::unique_ptr<wivrn_ses
 
 		if (config.codec)
 		{
-			info.supported_codecs = {*config.codec};
+			const bool supports_10bit = decoder::supports_10bit(*config.codec);
+			info.supported_codecs = {{.codec = *config.codec, .supports_10bit = supports_10bit}};
 			switch (*config.codec)
 			{
 				case h264:
@@ -365,11 +354,13 @@ std::shared_ptr<scenes::stream> scenes::stream::create(std::unique_ptr<wivrn_ses
 					break;
 				case h265:
 				case av1:
-					info.bit_depth = config.bit_depth;
+					info.bit_depth = supports_10bit ? config.bit_depth : 8;
 			}
 		}
 		else
+		{
 			info.supported_codecs = decoder::supported_codecs();
+		}
 
 		return info;
 	}());
@@ -1127,7 +1118,7 @@ void scenes::stream::render(const XrFrameState & frame_state)
 
 			use_alpha = blit_handle->view_info.alpha;
 
-#ifdef WIVRN_USE_V4L2
+#if WIVRN_USE_V4L2
 			if (blit_handle->foreign_queue_family != vk::QueueFamilyIgnored)
 			{
 				// decoder completed its write before handing us this image
@@ -1340,7 +1331,7 @@ void scenes::stream::render(const XrFrameState & frame_state)
 		                      {bias, bias, bias, 0.},
 		                      image_index);
 
-#ifdef WIVRN_USE_V4L2
+#if WIVRN_USE_V4L2
 		// the blit handles keep CAPTURE buffers alive until this cmd buffer's fence has completed
 		inplace_vector<vk::ImageMemoryBarrier, decoder_count> foreign_release_barriers;
 		for (const auto & handle: current_blit_handles)
@@ -1568,7 +1559,7 @@ void scenes::stream::setup(const to_headset::video_stream_description & descript
 	for (const auto & [stream_index, item]: utils::enumerate(decoders))
 	{
 		item = accumulator_images{
-		        .decoder = std::make_unique<shard_accumulator>(device, physical_device, instance, queue_family_index, description, shared_from_this(), stream_index),
+		        .decoder = std::make_unique<shard_accumulator>(device, physical_device, instance, queue_family_index, description, weak_from_this(), stream_index),
 		};
 	}
 
