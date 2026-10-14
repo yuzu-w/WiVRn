@@ -84,7 +84,10 @@ public:
 
 	// See the physical keyboard through passthrough while streaming, see
 	// client/xr/keyboard_passthrough.h. Unrelated to forward_keyboard below.
+	// Use set_keyboard_passthrough() to enable it from the UI: it needs the
+	// spatial data permission, without which the keyboard is never found.
 	bool keyboard_passthrough_enabled = false;
+	static constexpr const char * keyboard_passthrough_permission = "com.oculus.permission.USE_SCENE";
 
 	// Input forwarding, per device. Off by default; only effective if the server permits it.
 	bool forward_keyboard = false;
@@ -137,6 +140,7 @@ public:
 
 	bool check_feature(feature f) const;
 	void set_feature(feature f, bool state);
+	void set_keyboard_passthrough(bool state);
 
 	static constexpr float default_height_offset_standing = 0;
 	static constexpr float default_height_offset_seated = 0.45;

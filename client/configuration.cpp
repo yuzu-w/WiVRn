@@ -218,6 +218,23 @@ void configuration::set_feature(feature f, bool state)
 	save();
 }
 
+void configuration::set_keyboard_passthrough(bool state)
+{
+#ifdef __ANDROID__
+	if (state)
+	{
+		request_permission(keyboard_passthrough_permission, [this](bool granted) {
+			keyboard_passthrough_enabled = granted;
+			save();
+		});
+
+		return;
+	}
+#endif
+	keyboard_passthrough_enabled = state;
+	save();
+}
+
 configuration::configuration(xr::system & system, xr::session & session)
 {
 	passthrough_enabled = system.passthrough_supported() == xr::passthrough_type::color;
@@ -308,6 +325,15 @@ configuration::configuration(xr::system & system, xr::session & session, const s
 
 		if (not system.keyboard_tracking_supported())
 			keyboard_passthrough_enabled = false;
+#ifdef __ANDROID__
+		// the permission can be revoked behind our back (e.g. by an OS
+		// update), show the setting as off so that enabling it asks again
+		else if (keyboard_passthrough_enabled and not check_permission(keyboard_passthrough_permission))
+		{
+			spdlog::warn("Keyboard passthrough enabled but {} is not granted, disabling it", keyboard_passthrough_permission);
+			keyboard_passthrough_enabled = false;
+		}
+#endif
 	}
 	catch (std::exception & e)
 	{

@@ -562,7 +562,7 @@ void settings_devices(const settings_context & ctx)
 		        .description = _("See your physical keyboard and hands through passthrough."),
 		        .ui = ui_kind::toggle,
 		        .get_bool = [&config] { return config.keyboard_passthrough_enabled; },
-		        .set_bool = [&config](bool v) { config.keyboard_passthrough_enabled = v; config.save(); },
+		        .set_bool = [&config](bool v) { config.set_keyboard_passthrough(v); },
 		        .default_bool = default_config.keyboard_passthrough_enabled,
 		});
 	}
