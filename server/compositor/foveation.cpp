@@ -19,7 +19,6 @@
 
 #include "foveation.h"
 
-#include "driver/xrt_cast.h"
 #include "utils/wivrn_vk_bundle.h"
 #include "vk/specialization_constants.h"
 #include "wivrn_packets.h"
@@ -261,16 +260,21 @@ static std::tuple<float, float> solve_foveation(float λ, float c)
 	return {a, b(a)};
 }
 
-static bool is_zero_quat(xrt_quat q)
+static float angles_to_center(float e, float l, float r)
 {
-	return q.x == 0 and q.y == 0 and q.z == 0 and q.w == 0;
+	e = tan(e);
+	l = tan(l);
+	r = tan(r);
+	float res = std::clamp((e - l) / (r - l) * 2 - 1, -1.f, 1.f);
+	// If the center isn't in the FoV, fallback to middle of image
+	if (std::isnan(res))
+		return 0;
+	return res;
 }
 
+// Same conventions as the headset side (client/foveation.cpp)
 static xrt_vec2 yaw_pitch(xrt_quat q)
 {
-	if (is_zero_quat(q))
-		return xrt_vec2{};
-
 	float sine_theta = std::clamp(-2.0f * (q.y * q.z - q.w * q.x), -1.0f, 1.0f);
 
 	float pitch = std::asin(sine_theta);
@@ -287,27 +291,12 @@ static xrt_vec2 yaw_pitch(xrt_quat q)
 	        pitch};
 }
 
-static float angles_to_center(float e, float l, float r)
-{
-	e = tan(e);
-	l = tan(l);
-	r = tan(r);
-	float res = std::clamp((e - l) / (r - l) * 2 - 1, -1.f, 1.f);
-	// If the center isn't in the FoV, fallback to middle of image
-	if (std::isnan(res))
-		return 0;
-	return res;
-}
-
 static float convergence_angle(float distance, float eye_x, float gaze_yaw)
 {
 	float target_x = distance * std::sin(gaze_yaw);
 	float target_z = distance * std::cos(gaze_yaw);
 
-	float dx = target_x - eye_x;
-	float dz = target_z;
-
-	return std::atan2(dx, dz);
+	return std::atan2(target_x - eye_x, target_z);
 }
 
 static void fill_param_2d(
@@ -357,11 +346,6 @@ namespace wivrn
 
 void foveation::compute_params()
 {
-	auto e = yaw_pitch(gaze);
-
-	if (manual_foveation.enabled)
-		e.y = manual_foveation.pitch;
-
 	for (size_t i = 0; i < 2; ++i)
 	{
 		const auto & fov = last.fovs[i];
@@ -369,9 +353,7 @@ void foveation::compute_params()
 		size_t extent_w = std::abs(last.src[i].extent.w);
 		if (foveated_size.width < extent_w)
 		{
-			auto distance = manual_foveation.enabled ? manual_foveation.distance : convergence_distance;
-			auto angle_x = convergence_angle(distance, eye_x[i], -e.x);
-			auto center = angles_to_center(angle_x, fov.angle_left, fov.angle_right);
+			const float center = angles_to_center(last.foveation_angles[i].x, fov.angle_left, fov.angle_right);
 			fill_param_2d(center, foveated_size.width, extent_w, params[i].x);
 		}
 		else
@@ -380,13 +362,7 @@ void foveation::compute_params()
 		size_t extent_h = std::abs(last.src[i].extent.h);
 		if (foveated_size.height < extent_h)
 		{
-			auto angle_y = -e.y;
-			if (is_zero_quat(gaze) and not manual_foveation.enabled)
-			{
-				// Natural gaze is not straight forward, adjust the angle
-				angle_y += angle_offset;
-			}
-			auto center = angles_to_center(-angle_y, fov.angle_up, fov.angle_down);
+			const float center = angles_to_center(last.foveation_angles[i].y, fov.angle_up, fov.angle_down);
 			fill_param_2d(center, foveated_size.height, extent_h, params[i].y);
 		}
 		else
@@ -396,11 +372,6 @@ void foveation::compute_params()
 
 foveation::foveation(wivrn::vk_bundle & bundle, vk::Extent3D foveated_size) :
         foveated_size(foveated_size),
-        // normal sight line is between 10° and 15° below horizontal
-        // https://apps.dtic.mil/sti/tr/pdf/AD0758339.pdf pages 393-394
-        // testing shows 10° looks better
-        angle_offset(10 * M_PI / 180),
-        convergence_distance(1 /* meter*/),
         gpu_buffer(
                 bundle.device,
                 {
@@ -427,41 +398,36 @@ foveation::foveation(wivrn::vk_bundle & bundle, vk::Extent3D foveated_size) :
 	bundle.name(descriptor_set, "foveation descriptor set");
 }
 
-void foveation::update_tracking(const from_headset::tracking & tracking)
+void foveation::update_foveation(const from_headset::foveation & packet)
 {
 	std::lock_guard lock(mutex);
-
-	const uint8_t orientation_ok = from_headset::pose_flags::orientation_valid | from_headset::pose_flags::orientation_tracked;
-
-	if (tracking.view_flags & XR_VIEW_STATE_POSITION_VALID_BIT)
-	{
-		eye_x[0] = tracking.views[0].pose.position.x;
-		eye_x[1] = tracking.views[1].pose.position.x;
-	}
-
-	for (const auto & pose: tracking.device_poses)
-	{
-		if (pose.device != device_id::EYE_GAZE)
-			continue;
-
-		if ((pose.flags & orientation_ok) != orientation_ok)
-			return;
-
-		gaze = xrt_cast(pose.pose.orientation);
-		return;
-	}
+	foveation_angles = packet.angles;
 }
 
-void foveation::update_foveation_center_override(const from_headset::override_foveation_center & center)
+void foveation::update_eye_positions(const from_headset::tracking & tracking)
 {
+	if (not(tracking.view_flags & XR_VIEW_STATE_POSITION_VALID_BIT))
+		return;
+
 	std::lock_guard lock(mutex);
-	manual_foveation = center;
+	eye_x[0] = tracking.views[0].pose.position.x;
+	eye_x[1] = tracking.views[1].pose.position.x;
 }
 
 void foveation::set_external_gaze(const xrt_quat & q)
 {
 	std::lock_guard lock(mutex);
-	gaze = q;
+	if (q.x == 0 and q.y == 0 and q.z == 0 and q.w == 0)
+	{
+		external_angles.reset();
+		return;
+	}
+
+	// Converge at 1 m, as the headset does for its own eye gaze
+	auto e = yaw_pitch(q);
+	auto & angles = external_angles.emplace();
+	for (size_t i = 0; i < 2; ++i)
+		angles[i] = {convergence_angle(1, eye_x[i], -e.x), e.y};
 }
 
 static void fill_ubo(
@@ -501,10 +467,6 @@ static bool operator==(const T & a, const T & b)
 	static_assert(std::has_unique_object_representations_v<T>);
 	return std::memcmp(&a, &b, sizeof(T)) == 0;
 }
-static bool operator==(const xrt_quat & a, const xrt_quat & b)
-{
-	return a.x == b.x and a.y == b.y and a.z == b.z and a.w == b.w;
-}
 static bool operator==(const xrt_fov & a, const xrt_fov & b)
 {
 	return a.angle_left == b.angle_left and a.angle_right == b.angle_right and a.angle_up == b.angle_up and a.angle_down == b.angle_down;
@@ -517,26 +479,23 @@ void foveation::update_ubo(
 {
 	// Check if the last value is still valid
 	std::lock_guard lock(mutex);
+	const auto & angles = external_angles ? *external_angles : foveation_angles;
 	if (last.flip_y == flip_y and
 	    last.src[0] == src_rect[0] and
 	    last.src[1] == src_rect[1] and
 	    last.fovs[0] == src_fov[0] and
 	    last.fovs[1] == src_fov[1] and
-	    (last.gaze == gaze or manual_foveation.enabled) and // Ignore the gaze if foveation center is overridden
-	    std::abs(last.eye_x[0] - eye_x[0]) < 0.0005 and
-	    std::abs(last.eye_x[1] - eye_x[1]) < 0.0005 and
-	    last.manual_foveation.enabled == manual_foveation.enabled and
-	    std::abs(last.manual_foveation.pitch - manual_foveation.pitch) < 0.0005 and
-	    std::abs(last.manual_foveation.distance - manual_foveation.distance) < 0.0005)
+	    last.foveation_angles[0].x == angles[0].x and
+	    last.foveation_angles[0].y == angles[0].y and
+	    last.foveation_angles[1].x == angles[1].x and
+	    last.foveation_angles[1].y == angles[1].y)
 		return;
 
 	last = {
-	        .gaze = gaze,
 	        .flip_y = flip_y,
 	        .src = {src_rect[0], src_rect[1]},
 	        .fovs = {src_fov[0], src_fov[1]},
-	        .eye_x = {eye_x[0], eye_x[1]},
-	        .manual_foveation = manual_foveation,
+	        .foveation_angles = angles,
 	};
 
 	compute_params();
@@ -600,7 +559,6 @@ std::array<to_headset::foveation_parameter, 2> foveation::foveate(
         bool alpha)
 {
 	update_ubo(cmd, flip_y, src_rect, src_fov);
-	auto ubo = gpu_buffer.data<ubo_data>();
 
 	std::array src_image_info{
 	        vk::DescriptorImageInfo{

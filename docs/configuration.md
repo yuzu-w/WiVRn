@@ -161,7 +161,8 @@ Each packet is 32 bytes, little endian:
 | 8 | `i64` | timestamp_ns | sender's `CLOCK_MONOTONIC`, used for latency logging only |
 | 16 | `f32[4]` | x, y, z, w | gaze orientation quaternion in view (head) space, -Z forward, +Y up |
 
-When no valid packet has been received for `timeout-ms`, the gaze is cleared and foveation falls back to its default center.
+While valid packets arrive, the external gaze replaces the foveation center sent by the headset (including the manual override from the headset settings).
+When no valid packet has been received for `timeout-ms`, the gaze is cleared and foveation falls back to the center sent by the headset.
 Packets with a wrong size, magic or version are dropped.
 
 ### Example

@@ -24,6 +24,7 @@
 #include "xrt/xrt_defines.h"
 
 #include <mutex>
+#include <optional>
 #include <vulkan/vulkan_raii.hpp>
 
 struct render_resources;
@@ -39,15 +40,9 @@ class foveation
 	std::mutex mutex;
 
 	const vk::Extent3D foveated_size; // per eye
-
-	// Natural vertical gaze angle
-	const float angle_offset;
-	// Optionally defined from environment variables
-	const float convergence_distance;
-
+	std::array<XrVector2f, 2> foveation_angles = {};
 	float eye_x[2] = {}; // eye x position
-	xrt_quat gaze = {};
-	from_headset::override_foveation_center manual_foveation = {};
+	std::optional<std::array<XrVector2f, 2>> external_angles;
 	std::array<to_headset::foveation_parameter, 2> params;
 
 	buffer_allocation gpu_buffer;
@@ -62,13 +57,10 @@ class foveation
 	// parameters used for last computation
 	struct P
 	{
-		xrt_quat gaze = {};
 		bool flip_y = false;
 		xrt_rect src[2] = {};
 		xrt_fov fovs[2] = {};
-		float eye_x[2] = {};
-
-		from_headset::override_foveation_center manual_foveation = {};
+		std::array<XrVector2f, 2> foveation_angles = {};
 	};
 	P last;
 
@@ -82,12 +74,13 @@ class foveation
 	        std::array<xrt_fov, 2> src_fov);
 
 public:
-	foveation(wivrn::vk_bundle &,
-	          vk::Extent3D foveated_size);
+	foveation(wivrn::vk_bundle &, vk::Extent3D foveated_size);
 
-	void update_tracking(const from_headset::tracking &);
-	void update_foveation_center_override(const from_headset::override_foveation_center &);
+	void update_foveation(const from_headset::foveation &);
+	// Eye positions, only needed to place the external gaze target
+	void update_eye_positions(const from_headset::tracking &);
 	// Gaze in view space from a source other than the headset, zero quaternion for none
+	// Overrides the foveation center sent by the headset while set
 	void set_external_gaze(const xrt_quat &);
 
 	std::array<to_headset::foveation_parameter, 2> foveate(
