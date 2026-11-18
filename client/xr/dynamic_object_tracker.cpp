@@ -95,7 +95,9 @@ bool xr::dynamic_object_tracker::set_tracked_classes_keyboard()
 
 bool xr::dynamic_object_tracker::handle_event(const XrEventDataBaseHeader & header)
 {
-	switch (header.type)
+	// The META event types are not part of the Khronos XrStructureType enum: switch on the raw
+	// value so GCC -Wswitch does not reject them
+	switch (static_cast<uint32_t>(header.type))
 	{
 		case XR_TYPE_EVENT_DATA_DYNAMIC_OBJECT_TRACKER_CREATE_RESULT_META: {
 			const auto & event = reinterpret_cast<const XrEventDataDynamicObjectTrackerCreateResultMETA &>(header);
